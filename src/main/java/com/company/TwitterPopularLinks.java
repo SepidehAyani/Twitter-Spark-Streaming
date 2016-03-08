@@ -1,6 +1,3 @@
-/**
- * Created by sepidehayani on 3/4/16.
- */
 package com.company;
 
 /**
@@ -21,72 +18,66 @@ package com.company;
  * limitations under the License.
  */
 
-import java.util.Arrays;
-import org.apache.spark.*;
-import org.apache.spark.api.java.function.FlatMapFunction;
-import org.apache.spark.api.java.function.Function;
-import org.apache.spark.api.java.function.Function2;
-import org.apache.spark.api.java.function.PairFunction;
-import org.apache.spark.streaming.api.java.*;
-import scala.Tuple2;
+import org.apache.commons.configuration.CompositeConfiguration;
+import org.apache.commons.configuration.ConfigurationException;
+import org.apache.commons.configuration.PropertiesConfiguration;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
+import org.apache.spark.SparkConf;
+import org.apache.spark.streaming.Durations;
+import org.apache.spark.streaming.api.java.JavaStreamingContext;
+import org.apache.spark.streaming.twitter.TwitterUtils;
+
+import twitter4j.auth.Authorization;
+import twitter4j.auth.AuthorizationFactory;
+import twitter4j.conf.Configuration;
+import twitter4j.conf.ConfigurationContext;
 
 
 public class TwitterPopularLinks {
-  public static void main(String[] args) {
 
-    if (args.length < 4) {
-      System.err.println("Usage: TwitterPopularLinks <consumer key> <consumer secret> " +
-              "<access token> <access token secret> [<filters>]");
-      System.exit(1);
+  private static final Logger log = Logger.getLogger(TwitterPopularLinks.class);
+
+  public static void main(String[] args) throws ConfigurationException {
+    TwitterPopularLinks workflow = new TwitterPopularLinks();
+    log.setLevel(Level.DEBUG);
+
+    CompositeConfiguration conf = new CompositeConfiguration();
+    conf.addConfiguration(new PropertiesConfiguration("spark.properties"));
+
+    try {
+      workflow.run(conf);
+    } catch (Exception e) {
+      e.printStackTrace();
     }
 
-    String consumerKey = args[0];
-    String consumerSecret = args[1];
-    String accessToken = args[2];
-    String accessTokenSecret = args[3];
-    String[] filters = new String[] {"#"};
+  }
+
+  private void run(CompositeConfiguration conf) {
+    // Spark conf
+    SparkConf sparkConf = new SparkConf().setAppName("Twitter Spark").setMaster(conf.getString("spark.master"))
+            .set("spark.serializer", conf.getString("spark.serializer"));
+    JavaStreamingContext jsc = new JavaStreamingContext(sparkConf, Durations.seconds(1));
+
+    // Twitter4J and configuring twitter4J.properties
+    Configuration twitterConf = ConfigurationContext.getInstance();
+    Authorization twitterAuth = AuthorizationFactory.getInstance(twitterConf);
+
+    String consumerKey = "<MU21bDncz8Ixab7UKFoSZQDeO>";
+    String consumerSecret = "<k2cwpee6JJeqVPMeo3fdzsS71x81g4j8ELZLvT5pCizS6G9POS\n>";
+    String accessToken = "<491057026-rXLZ1sncKe9jn2hvg6u35t8V6nFPGRCsTEwc6pEO>";
+    String accessTokenSecret = "<HrzYdl2HMmASpy3Sz304Cf8DUdlzmrzVr3IDq9MMMaMBi>";
 
     System.setProperty("twitter4j.oauth.consumerKey", consumerKey);
     System.setProperty("twitter4j.oauth.consumerSecret", consumerSecret);
     System.setProperty("twitter4j.oauth.accessToken", accessToken);
     System.setProperty("twitter4j.oauth.accessTokenSecret", accessTokenSecret);
 
-    //Configure the Streaming Context
-    SparkConf sparkConf = new SparkConf().setAppName("TwitterPopularTags").setMaster("local[*]");
-    //Create the context with 2 seconds batch size
-    JavaStreamingContext jsc = new JavaStreamingContext(sparkConf, new org.apache.spark.streaming.Duration(10000));
-
-    // start receiving a stream of tweets ...
-    JavaReceiverInputDStream<String> tweets = TwitterUtils.createDirectStream(jsc, filters);
-    JavaDStream<String> links = tweets.flatMap(
-            new FlatMapFunction<String,String>() {
-              public Iterable<String> call(String tweet){
-                return Arrays.asList(tweet.split(" "));
-              }
-            }
-    );
-
-    JavaPairDStream<String, Integer> TwitterPopularLinks = links.mapToPair(
-      new PairFunction<String, String, Integer>() {
-        public Tuple2<String, Integer> call(String one) {
-         return new Tuple2<String, Integer>(one, 1);
-      }
-
-            }).reduceByKey(new Function2<Integer, Integer, Integer>() {
-      @Override
-      public Integer call(Integer T1, Integer T2) {
-        return T1 + T2;
-      }
-    });
-    JavaDStream<String> st1 = links.filter(new Function<String, Boolean>(){
-      @Override
-      public Boolean call(String st){return st.startsWith("#");
-              }
-            }
-    );
-    System.out.println("links");
-    links.print();
-    st1.count().print();
+    // Create twitter stream
+    String[] filters = { "https://", "http://" };
+    TwitterUtils.createStream(jsc, twitterAuth, filters).print();
+    // Start the computation
     jsc.start();
+    jsc.awaitTermination();
   }
 }
