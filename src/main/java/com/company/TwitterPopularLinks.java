@@ -18,66 +18,103 @@ package com.company;
  * limitations under the License.
  */
 
-import org.apache.commons.configuration.CompositeConfiguration;
-import org.apache.commons.configuration.ConfigurationException;
-import org.apache.commons.configuration.PropertiesConfiguration;
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
+
+
+import java.io.Serializable;
+import java.util.Arrays;
 import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.function.FlatMapFunction;
+import org.apache.spark.api.java.function.Function;
+import org.apache.spark.api.java.function.Function2;
+import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.streaming.Duration;
 import org.apache.spark.streaming.Durations;
+import org.apache.spark.streaming.api.java.JavaDStream;
+import org.apache.spark.streaming.api.java.JavaPairDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
 import org.apache.spark.streaming.twitter.TwitterUtils;
+import scala.Tuple2;
+import twitter4j.Status;
+import twitter4j.Twitter;
+import twitter4j.TwitterFactory;
+import twitter4j.auth.AccessToken;
 
-import twitter4j.auth.Authorization;
-import twitter4j.auth.AuthorizationFactory;
-import twitter4j.conf.Configuration;
-import twitter4j.conf.ConfigurationContext;
 
+public class TwitterPopularLinks implements Serializable{
 
-public class TwitterPopularLinks {
+  private static final long serialVersionUID = 1L;
 
-  private static final Logger log = Logger.getLogger(TwitterPopularLinks.class);
+  /** Creates Spark Configuration Instance**/
+  private static SparkConf conf = new SparkConf().setAppName("Twitter Streaming").setMaster("local[2]");
+  private static final String consumerKey ="MU21bDncz8Ixab7UKFoSZQDeO";
+  private static final String consumerSecret = "k2cwpee6JJeqVPMeo3fdzsS71x81g4j8ELZLvT5pCizS6G9POS";
+  private static final String accessTokenKey = "491057026-rXLZ1sncKe9jn2hvg6u35t8V6nFPGRCsTEwc6pEO";
+  private static final String accessTokenKey_secret = "HrzYdl2HMmASpy3Sz304Cf8DUdlzmrzVr3IDq9MMMaMBi";
 
-  public static void main(String[] args) throws ConfigurationException {
-    TwitterPopularLinks workflow = new TwitterPopularLinks();
-    log.setLevel(Level.DEBUG);
+  //We need to set an HDFS for periodic checkpointing of the intermediate data.
+  //private String checkPoint = "/home/Documents/...";
 
-    CompositeConfiguration conf = new CompositeConfiguration();
-    conf.addConfiguration(new PropertiesConfiguration("spark.properties"));
+  public static void main(String args[]){
 
-    try {
-      workflow.run(conf);
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
-
+    TwitterPopularLinks stream = new TwitterPopularLinks();
+    stream.sparkStreaming(conf);
   }
 
-  private void run(CompositeConfiguration conf) {
-    // Spark conf
-    SparkConf sparkConf = new SparkConf().setAppName("Twitter Spark").setMaster(conf.getString("spark.master"))
-            .set("spark.serializer", conf.getString("spark.serializer"));
-    JavaStreamingContext jsc = new JavaStreamingContext(sparkConf, Durations.seconds(1));
+  public void sparkStreaming(SparkConf conf ){
 
-    // Twitter4J and configuring twitter4J.properties
-    Configuration twitterConf = ConfigurationContext.getInstance();
-    Authorization twitterAuth = AuthorizationFactory.getInstance(twitterConf);
+    ///Creates Streaming Context
+    JavaStreamingContext jsc = new JavaStreamingContext(conf, Durations.seconds(1));
 
-    String consumerKey = "<MU21bDncz8Ixab7UKFoSZQDeO>";
-    String consumerSecret = "<k2cwpee6JJeqVPMeo3fdzsS71x81g4j8ELZLvT5pCizS6G9POS\n>";
-    String accessToken = "<491057026-rXLZ1sncKe9jn2hvg6u35t8V6nFPGRCsTEwc6pEO>";
-    String accessTokenSecret = "<HrzYdl2HMmASpy3Sz304Cf8DUdlzmrzVr3IDq9MMMaMBi>";
+    //Create a Twitter
+    Twitter twitter = new TwitterFactory().getInstance();
+    twitter.setOAuthConsumer(consumerKey, consumerSecret);
+    twitter.setOAuthAccessToken(new AccessToken(accessTokenKey,accessTokenKey_secret));
 
-    System.setProperty("twitter4j.oauth.consumerKey", consumerKey);
-    System.setProperty("twitter4j.oauth.consumerSecret", consumerSecret);
-    System.setProperty("twitter4j.oauth.accessToken", accessToken);
-    System.setProperty("twitter4j.oauth.accessTokenSecret", accessTokenSecret);
+    JavaDStream<Status> stream = TwitterUtils.createStream(jsc,twitter.getAuthorization());
 
-    // Create twitter stream
-    String[] filters = { "https://", "http://" };
-    TwitterUtils.createStream(jsc, twitterAuth, filters).print();
-    // Start the computation
+    JavaDStream<String> words = stream.map(
+            new Function<Status, String>() {
+              public String call(Status status) { return status.getText(); }
+            }
+    );
+
+    JavaDStream<String> statuses = words.flatMap(
+            new FlatMapFunction<String, String>() {
+              public Iterable<String> call(String in) {
+                return Arrays.asList(in.split(" "));
+              }
+            }
+    );
+    //Get the stream of hashtags from the stream of tweets
+    JavaDStream<String> hashTags = statuses.filter(
+            new Function<String, Boolean>() {
+              public Boolean call(String word) { return word.startsWith("#"); }
+            }
+    );
+    //Count the hashtags over a 5 minute window
+    JavaPairDStream<String, Integer> tuples = hashTags.mapToPair(
+            new PairFunction<String, String, Integer>() {
+              public Tuple2<String, Integer> call(String in) {
+                return new Tuple2<String, Integer>(in, 1);
+              }
+            }
+    );
+    //count these hashtags over a 5 minute moving window
+    JavaPairDStream<String, Integer> counts = tuples.reduceByKeyAndWindow(
+            new Function2<Integer, Integer, Integer>() {
+              public Integer call(Integer i1, Integer i2) { return i1 + i2; }
+            },
+            new Function2<Integer, Integer, Integer>() {
+              public Integer call(Integer i1, Integer i2) { return i1 - i2; }
+            },
+            new Duration(60 * 5 * 1000),
+            new Duration(1 * 1000)
+    );
+
+    counts.print();
+    //jsc.checkpoint(checkPoint);
     jsc.start();
     jsc.awaitTermination();
+
   }
 }
