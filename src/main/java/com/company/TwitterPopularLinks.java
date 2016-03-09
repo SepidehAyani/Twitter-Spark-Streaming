@@ -1,5 +1,4 @@
 package com.company;
-
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -17,8 +16,6 @@ package com.company;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 
 import java.io.Serializable;
 import java.util.Arrays;
@@ -46,10 +43,10 @@ public class TwitterPopularLinks implements Serializable{
 
   /** Creates Spark Configuration Instance**/
   private static SparkConf conf = new SparkConf().setAppName("Twitter Streaming").setMaster("local[2]");
-  private static final String consumerKey ="MU21bDncz8Ixab7UKFoSZQDeO";
-  private static final String consumerSecret = "k2cwpee6JJeqVPMeo3fdzsS71x81g4j8ELZLvT5pCizS6G9POS";
-  private static final String accessTokenKey = "491057026-rXLZ1sncKe9jn2hvg6u35t8V6nFPGRCsTEwc6pEO";
-  private static final String accessTokenKey_secret = "HrzYdl2HMmASpy3Sz304Cf8DUdlzmrzVr3IDq9MMMaMBi";
+  private static final String consumerKey ="Your Consumer Key";
+  private static final String consumerSecret = "Your Consumer Secret";
+  private static final String accessTokenKey = "Your Access Token Key";
+  private static final String accessTokenKey_secret = "Your Access Token Key Secret";
 
   //We need to set an HDFS for periodic checkpointing of the intermediate data.
   //private String checkPoint = "/home/Documents/...";
@@ -88,7 +85,7 @@ public class TwitterPopularLinks implements Serializable{
     //Get the stream of hashtags from the stream of tweets
     JavaDStream<String> hashTags = statuses.filter(
             new Function<String, Boolean>() {
-              public Boolean call(String word) { return word.startsWith("#"); }
+              public Boolean call(String word) { return word.startsWith("#"); }f
             }
     );
     //Count the hashtags over a 5 minute window
