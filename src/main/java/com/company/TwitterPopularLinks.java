@@ -85,7 +85,7 @@ public class TwitterPopularLinks implements Serializable{
     //Get the stream of hashtags from the stream of tweets
     JavaDStream<String> hashTags = statuses.filter(
             new Function<String, Boolean>() {
-              public Boolean call(String word) { return word.startsWith("#"); }f
+              public Boolean call(String word) { return word.startsWith("#"); }
             }
     );
     //Count the hashtags over a 5 minute window
